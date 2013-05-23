@@ -15,7 +15,8 @@ category:            Content Management
 build-type:          Simple
 cabal-version:       >=1.8
 data-dir:            data
-data-files:          templates/admin/*.html
+data-files:          templates/admin/*.html,
+                     templates/*.html
 
 executable wikifire
   hs-source-dirs:      src

@@ -3,20 +3,16 @@
     DeriveDataTypeable, TemplateHaskell, TypeSynonymInstances #-}
 module Data.WikiFire where
 
-import Data.SafeCopy        
 import Data.Acid
 import Data.Aeson
 import Data.Aeson.Types
 import Paths_wikifire
 import System.Directory        
-import Data.List              ( intercalate )
-import Data.Maybe             ( fromJust )
 import Control.Monad          ( foldM )
-import Control.Monad.IO.Class ( liftIO )
 import Control.Monad.State    ( get, put )
 import Control.Monad.Reader   ( ask )
 import Control.Applicative    ( (<$>) )
-import System.FilePath        ( (</>) )
+import System.FilePath        ( (</>), splitExtensions, takeBaseName )
 
 import qualified Data.Map             as M
 import qualified Data.ByteString.Lazy as B
@@ -32,9 +28,13 @@ initialTemplateSourceMap = do
     templates <- allTemplates templatesDir
     foldM (\m t -> do
         contents <- readFile t
-        let name = drop (length templatesDir) t
-        putStrLn $ "  " ++ name ++ " -> " ++ t
-        return $ M.insert name contents m
+        let fname      = drop (length templatesDir) t
+            (base, _) = splitExtensions fname
+            route     = if takeBaseName base == "index" 
+                        then take (length base - 5) base
+                        else base
+        putStrLn $ "  " ++ route ++ " -> " ++ t
+        return $ M.insert route contents m
         ) M.empty templates
 
 
@@ -43,6 +43,7 @@ allTemplates dir = do
     putStrLn $ "Reading contents of " ++ dir
     paths    <- getDirectoryContents dir
     (dirs,ts)<- separate dir $ clean dir paths
+    putStrLn $ "Found " ++ show ts
     tree     <- mapM allTemplates $ clean dir dirs
     return $ ts ++ concat tree
         where clean root    = foldl (\acc fp -> if head fp == '.' then acc else (root </> fp):acc) []
