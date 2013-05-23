@@ -1,0 +1,17 @@
+[
+    {"routeName"     : "/",
+     "routeFilePath" : ["templates","index.html"]},
+
+    {"routeName"     : "/admin",
+     "routeFilePath" : ["templates","admin","index.html"]},
+
+    {"routeName"     : "/admin/wikifire.js",
+     "routeFilePath" : ["templates","admin","wikifire.js"]},
+
+    {"routeName"     : "/admin/welcome.html",
+     "routeFilePath" : ["templates","admin","welcome.html"]},
+
+    {"routeName"     : "/admin/new.html",
+     "routeFilePath" : ["templates","admin","new.html"]}
+
+]
