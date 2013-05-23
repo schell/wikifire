@@ -2,7 +2,6 @@
 module Main where
 
 import Data.WikiFire
-import RequestHelpers
 
 import Happstack.Server     
 import Control.Monad            ( msum, void )
@@ -12,14 +11,17 @@ import Data.Acid                ( AcidState, Query, Update, makeAcidic, openLoca
 import Data.Acid.Local          ( createCheckpointAndClose )
 import Data.Acid.Advanced       ( query', update' )
 
-import qualified Data.ByteString.Lazy.Char8 as B
+import qualified Data.ByteString.Char8 as C
+import qualified Data.ByteString.Lazy.Char8 as L
 
 main :: IO ()
 main = do 
+    putStrLn "Reading default templates..."
+    sourceMap <- initialTemplateSourceMap
     putStrLn "Running the wikifire server..."
-    bracket (openLocalState initialTemplateSourceMap)
+    bracket (openLocalState sourceMap)
             createCheckpointAndClose
-            (\acid -> simpleHTTP nullConf $ route acid)
+            (simpleHTTP nullConf . route)
 
 route :: AcidState TemplateSourceMap -> ServerPart Response
 route acid = 
@@ -33,13 +35,13 @@ routeGET :: AcidState TemplateSourceMap -> ServerPart Response
 routeGET acid =
     msum [ dir "favicon.ico"    $ notFound (toResponse ())
          , dir "_"              $ uriRest $ \s -> handleGetTemplate acid s
-         , dir "_templateNames" $ handleGetTemplateNames acid ]
+         , dir "_templateNames" $ handleGetTemplateNames acid 
+         , uriRest              $ \s -> handleRenderTemplate acid s]
 
 routePOST :: AcidState TemplateSourceMap -> ServerPart Response
 routePOST acid = 
     msum [ do nullDir 
               handlePostTemplate acid ] 
-
 
 handleGetTemplate :: AcidState TemplateSourceMap -> String -> ServerPart Response 
 handleGetTemplate acid name = do
@@ -60,3 +62,9 @@ handleGetTemplateNames acid = do
     namesJSON <- query' acid GetTemplateNames
     ok $ contentLength $ toResponse namesJSON
 
+handleRenderTemplate :: AcidState TemplateSourceMap -> String -> ServerPart Response
+handleRenderTemplate acid name = do
+    mSrc <- query' acid $ GetTemplate name
+    case mSrc of
+        Nothing -> notFound $ toResponse ()
+        Just t  -> ok $ toResponseBS (C.pack "text/html") (L.pack t)
