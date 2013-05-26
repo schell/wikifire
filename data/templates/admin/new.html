@@ -1,19 +1,23 @@
-<form class="form-horizontal" action="/" method="POST">
+<form class="form-horizontal">
     <div class="control-group">
         <label class="control-label" for="name">Template Path</label>
         <div class="controls">
-            <input type="text" name="name" id="name" placeholder="/place/to/serve/template.html" />
+          <input type="text" name="name" id="name" placeholder="/place/to/serve/template.html" ng-model="template.name"/>
         </div>
     </div>
     <div class="control-group">
         <label class="control-label" for="source">Template Source</label>
         <div class="controls">
-            <textarea class="input-xxlarge" rows="3" name="source" id="source"></textarea>
+          <textarea class="input-xxlarge" rows="6" style="width:100%;" name="source" id="source" ng-model="template.source"></textarea>
         </div>
     </div>
     <div class="control-group">
         <div class="controls">
-            <button class="btn btn-primary" type="submit">Ok</button>
+          <button class="btn btn-primary" type="submit" ng-click="save()">Ok</button>
+          <span class="help-inline">
+            <button id="view-template" type="button" class="btn btn-success" style="display:none;" ng-click="template.view()">View</button>
+            {{saveStatus}}
+          </span>
         </div>
     </div>
 </form>

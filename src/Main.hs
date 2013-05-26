@@ -3,7 +3,9 @@ module Main where
 
 import Data.WikiFire
 
-import Happstack.Server     
+import Happstack.Server
+import Data.Maybe               ( fromMaybe )
+import Control.Applicative      ( optional )
 import Control.Monad            ( msum, void )
 import Control.Monad.IO.Class   ( liftIO )
 import Control.Exception        ( bracket )
@@ -15,7 +17,7 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString.Lazy.Char8 as L
 
 main :: IO ()
-main = do 
+main = do
     putStrLn "Reading default templates..."
     sourceMap <- initialTemplateSourceMap
     putStrLn "Running the wikifire server..."
@@ -23,48 +25,51 @@ main = do
             createCheckpointAndClose
             (simpleHTTP nullConf . route)
 
-route :: AcidState TemplateSourceMap -> ServerPart Response
-route acid = 
+route :: AcidState WFTemplateSourceMap -> ServerPart Response
+route acid =
     do decodeBody (defaultBodyPolicy "/tmp/" 0 1000000 1000000)
        msum [ do method POST
                  routePOST acid,
-              do method GET 
+              do method GET
                  routeGET  acid ]
 
-routeGET :: AcidState TemplateSourceMap -> ServerPart Response
+routeGET :: AcidState WFTemplateSourceMap -> ServerPart Response
 routeGET acid =
     msum [ dir "favicon.ico"    $ notFound (toResponse ())
          , dir "_"              $ uriRest $ \s -> handleGetTemplate acid s
-         , dir "_templateNames" $ handleGetTemplateNames acid 
+         , dir "_templateNames" $ handleGetTemplateNames acid
          , uriRest              $ \s -> handleRenderTemplate acid s]
 
-routePOST :: AcidState TemplateSourceMap -> ServerPart Response
-routePOST acid = 
-    msum [ do nullDir 
-              handlePostTemplate acid ] 
+routePOST :: AcidState WFTemplateSourceMap -> ServerPart Response
+routePOST acid =
+    msum [ do nullDir
+              handlePostTemplate acid ]
 
-handleGetTemplate :: AcidState TemplateSourceMap -> String -> ServerPart Response 
+handleGetTemplate :: AcidState WFTemplateSourceMap -> String -> ServerPart Response
 handleGetTemplate acid name = do
     mTemplate <- query' acid $ GetTemplate name
     case mTemplate of
         Nothing -> notFound (toResponse ())
-        Just t  -> ok $ contentLength $ toResponse t 
+        Just t  -> ok $ contentLength $ toResponse $ templateSource t
 
-handlePostTemplate :: AcidState TemplateSourceMap -> ServerPart Response 
+handlePostTemplate :: AcidState WFTemplateSourceMap -> ServerPart Response
 handlePostTemplate acid = do
     name <- look "name"
     src  <- look "source"
-    msg <- update' acid (PostTemplate name src)
+    mCt  <- optional $ look "contentType"
+    let ct = fromMaybe "text/plain" mCt
+    let t = WFTemplate (L.pack ct) (L.pack src)
+    msg <- update' acid $ PostTemplate name t
     ok $ contentLength $ toResponse msg
 
-handleGetTemplateNames :: AcidState TemplateSourceMap -> ServerPart Response
-handleGetTemplateNames acid = do 
+handleGetTemplateNames :: AcidState WFTemplateSourceMap -> ServerPart Response
+handleGetTemplateNames acid = do
     namesJSON <- query' acid GetTemplateNames
     ok $ contentLength $ toResponse namesJSON
 
-handleRenderTemplate :: AcidState TemplateSourceMap -> String -> ServerPart Response
+handleRenderTemplate :: AcidState WFTemplateSourceMap -> String -> ServerPart Response
 handleRenderTemplate acid name = do
-    mSrc <- query' acid $ GetTemplate name
-    case mSrc of
-        Nothing -> notFound $ toResponse ()
-        Just t  -> ok $ toResponseBS (C.pack "text/html") (L.pack t)
+    mT <- query' acid $ GetTemplate name
+    case mT of
+        Nothing                  -> notFound $ toResponse ()
+        Just (WFTemplate ct src) -> ok $ toResponseBS (C.pack $ L.unpack ct) src

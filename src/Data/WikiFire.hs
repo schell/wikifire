@@ -7,22 +7,39 @@ import Data.Acid
 import Data.Aeson
 import Paths_wikifire
 import System.Directory
+import Data.Typeable          ( Typeable )
 import Data.Vector            ( fromList )
+import Data.Maybe             ( fromMaybe )
 import Control.Monad          ( foldM, mzero )
 import Control.Monad.State    ( get, put )
 import Control.Monad.Reader   ( ask )
 import Control.Applicative    ( (<$>), (<*>) )
 import System.FilePath        ( (</>) )
+import Data.SafeCopy          ( base, deriveSafeCopy )
 
 import qualified Data.Map                   as M
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.Text                  as T
 
 -- | The main acid store.
-type TemplateSourceMap = M.Map String String
+type WFTemplateSourceMap = M.Map String WFTemplate
+
+data WFTemplate = WFTemplate { templateType  :: B.ByteString
+                             , templateSource:: B.ByteString
+                             } deriving (Eq, Typeable)
+
+instance Show WFTemplate where
+    show (WFTemplate ct src) = "WFTemplate { templateType='"++ B.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
+        where suf xs = if length xs >= chars
+                       then xs ++ "..."
+                       else xs
+              trunc  = take chars . B.unpack
+              chars  = 10
+
+$(deriveSafeCopy 0 'base ''WFTemplate)
 
 -- | Represents a config file.
-data Config = Config { configRoutes :: [Route] }
+data Config = Config { routeCfgs :: [RouteCfg] }
 
 instance FromJSON Config where
    parseJSON (Object v) = Config <$>
@@ -33,20 +50,20 @@ instance FromJSON Config where
 -- which to read the template for that route. The `routeFilePath` is an
 -- array of nodes that will be concatenated with the OS's directory
 -- separator.
-data Route  = Route { routeName      :: String
-                    , routeFilePath  :: [String] } deriving (Show, Eq)
+data RouteCfg  = RouteCfg { routeName         :: String       -- ^ Path of the template on the server.
+                          , routeContentType  :: Maybe String -- ^ Content type of the route (ie, "text/plain")
+                          , routeFilePath     :: [String]     -- ^ Path of the template on disk, each directory being one entry in the array.
+                          } deriving (Show, Eq)
 
-instance FromJSON Route where
-    parseJSON (Object v) = Route            <$>
-                           v .: "routeName" <*>
-                           v .: "routeFilePath"
+
+instance FromJSON RouteCfg where
+    parseJSON (Object v) = RouteCfg                    <$>
+                              v .:  "routeName"        <*>
+                              v .:? "routeContentType" <*>
+                              v .:  "routeFilePath"
     parseJSON _          = mzero
 
--- | A type to reply with JSON data.
-data JSONReply = JSONReply { jsonReplyOk   :: Bool
-                           , jsonReplyData :: Value }
-
-initialTemplateSourceMap :: IO TemplateSourceMap
+initialTemplateSourceMap :: IO WFTemplateSourceMap
 initialTemplateSourceMap = do
     datadir <- getDataDir
     let configFile = datadir </> "routes.json"
@@ -54,7 +71,7 @@ initialTemplateSourceMap = do
     routeMap    <- if not routesExist
                    then return []
                    else do config <- readFile $ datadir </> "routes.json"
-                           case decode (B.pack config) :: Maybe [Route] of
+                           case decode (B.pack config) :: Maybe [RouteCfg] of
                                Just routes -> return routes
                                Nothing     -> do
                                    putStrLn $ "Could not decode config file " ++ configFile
@@ -62,27 +79,32 @@ initialTemplateSourceMap = do
     let routesInDataDir = map (\r -> r { routeFilePath = datadir:routeFilePath r }) routeMap
     addRoutes M.empty routesInDataDir
 
-addRoutes :: TemplateSourceMap -> [Route] -> IO TemplateSourceMap
+addRoutes :: WFTemplateSourceMap -> [RouteCfg] -> IO WFTemplateSourceMap
 addRoutes = foldM (\m r -> do
-    let filePath = path r
-        name     = routeName r
-        path     = foldl (</>) "" . routeFilePath
-    file <- readFile filePath
-    putStrLn $ "  Routing   " ++ name ++ "  ->  " ++ filePath
-    return $ M.insert name file m)
+    let name = routeName r
+    template <- toWFTemplate r
+    putStrLn $ "  Routing   " ++ name ++ "  ->  " ++ show template
+    return $ M.insert name template m)
 
-postTemplate :: String -> String -> Update TemplateSourceMap B.ByteString
-postTemplate name src = do
+toWFTemplate :: RouteCfg -> IO WFTemplate
+toWFTemplate (RouteCfg _ mT p) = do
+    let filePath = foldl (</>) "" p
+        t        = B.pack $ fromMaybe "text/html" mT
+    src <- readFile filePath
+    return $ WFTemplate t $ B.pack src
+
+postTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
+postTemplate name t = do
     sourceMap      <- get
-    put $ M.insert name src sourceMap
+    put $ M.insert name t sourceMap
     return $ replyJsonMsg True $ object [ T.pack "name"   .= name
-                                        , T.pack "source" .= src
-                                        , T.pack "bytes"  .= length src ]
+                                        , T.pack "bytes"  .= B.length (templateSource t)
+                                        ]
 
-getTemplate :: String -> Query TemplateSourceMap (Maybe String)
+getTemplate :: String -> Query WFTemplateSourceMap (Maybe WFTemplate)
 getTemplate name = M.lookup name <$> ask
 
-getTemplateNames :: Query TemplateSourceMap B.ByteString
+getTemplateNames :: Query WFTemplateSourceMap B.ByteString
 getTemplateNames = do
     keys <- M.keys <$> ask
     return $ encode $ object [ T.pack "ok"   .= True
@@ -92,7 +114,7 @@ replyJsonMsg :: Bool -> Value -> B.ByteString
 replyJsonMsg ok reply = encode $ object [ T.pack "ok"   .= ok
                                         , T.pack "data" .= reply ]
 
-$(makeAcidic ''TemplateSourceMap [ 'postTemplate
+$(makeAcidic ''WFTemplateSourceMap [ 'postTemplate
                                  , 'getTemplate
                                  , 'getTemplateNames ])
 

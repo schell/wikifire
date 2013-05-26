@@ -19,7 +19,8 @@ data-dir:            data
 data-files:          routes.json,
                      templates/*.html,
                      templates/admin/*.html,
-                     templates/admin/*.js
+                     templates/admin/*.js,
+                     templates/admin/img/*.png
 
 executable wikifire
   hs-source-dirs:      src
