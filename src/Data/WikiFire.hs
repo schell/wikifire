@@ -1,67 +1,27 @@
-{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances, GeneralizedNewtypeDeriving,
-    MultiParamTypeClasses, TypeFamilies, OverloadedStrings,
-    DeriveDataTypeable, TemplateHaskell, TypeSynonymInstances #-}
+{-# LANGUAGE CPP, FlexibleContexts, FlexibleInstances,
+  GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeFamilies,
+  OverloadedStrings, DeriveDataTypeable, TypeSynonymInstances,
+  TemplateHaskell #-}
 module Data.WikiFire where
+
+import Types
 
 import Data.Acid
 import Data.Aeson
 import Paths_wikifire
 import System.Directory
-import Data.Typeable          ( Typeable )
 import Data.Vector            ( fromList )
 import Data.Maybe             ( fromMaybe )
-import Control.Monad          ( foldM, mzero )
+import Control.Monad          ( foldM )
 import Control.Monad.State    ( get, put )
 import Control.Monad.Reader   ( ask )
-import Control.Applicative    ( (<$>), (<*>) )
+import Control.Applicative    ( (<$>) )
 import System.FilePath        ( (</>) )
-import Data.SafeCopy          ( base, deriveSafeCopy )
 
 import qualified Data.Map                   as M
 import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.Text                  as T
 
--- | The main acid store.
-type WFTemplateSourceMap = M.Map String WFTemplate
-
-data WFTemplate = WFTemplate { templateType  :: B.ByteString
-                             , templateSource:: B.ByteString
-                             } deriving (Eq, Typeable)
-
-instance Show WFTemplate where
-    show (WFTemplate ct src) = "WFTemplate { templateType='"++ B.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
-        where suf xs = if length xs >= chars
-                       then xs ++ "..."
-                       else xs
-              trunc  = take chars . B.unpack
-              chars  = 10
-
-$(deriveSafeCopy 0 'base ''WFTemplate)
-
--- | Represents a config file.
-data Config = Config { routeCfgs :: [RouteCfg] }
-
-instance FromJSON Config where
-   parseJSON (Object v) = Config <$>
-                          v .: "configRoutes"
-   parseJSON _          = mzero
-
--- | Each route is a route name that points to a file from
--- which to read the template for that route. The `routeFilePath` is an
--- array of nodes that will be concatenated with the OS's directory
--- separator.
-data RouteCfg  = RouteCfg { routeName         :: String       -- ^ Path of the template on the server.
-                          , routeContentType  :: Maybe String -- ^ Content type of the route (ie, "text/plain")
-                          , routeFilePath     :: [String]     -- ^ Path of the template on disk, each directory being one entry in the array.
-                          } deriving (Show, Eq)
-
-
-instance FromJSON RouteCfg where
-    parseJSON (Object v) = RouteCfg                    <$>
-                              v .:  "routeName"        <*>
-                              v .:? "routeContentType" <*>
-                              v .:  "routeFilePath"
-    parseJSON _          = mzero
 
 initialTemplateSourceMap :: IO WFTemplateSourceMap
 initialTemplateSourceMap = do
@@ -91,7 +51,7 @@ toWFTemplate (RouteCfg _ mT p) = do
     let filePath = foldl (</>) "" p
         t        = B.pack $ fromMaybe "text/html" mT
     src <- readFile filePath
-    return $ WFTemplate t $ B.pack src
+    return $ WFTemplate t (B.pack src) Nothing
 
 postTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
 postTemplate name t = do
@@ -104,6 +64,18 @@ postTemplate name t = do
 getTemplate :: String -> Query WFTemplateSourceMap (Maybe WFTemplate)
 getTemplate name = M.lookup name <$> ask
 
+cacheTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
+cacheTemplate _      (WFTemplate _ _   (Just cache)) = return cache
+cacheTemplate name t@(WFTemplate _ src Nothing)      = do
+    cache     <- parseTemplateSource src
+    sourceMap <- get
+    put $ M.insert name t{templateCache=Just cache} sourceMap
+    return cache
+
+parseTemplateSource :: B.ByteString -> Update WFTemplateSourceMap B.ByteString
+-- Placeholder for real parsing to come.
+parseTemplateSource = return
+
 getTemplateNames :: Query WFTemplateSourceMap B.ByteString
 getTemplateNames = do
     keys <- M.keys <$> ask
@@ -115,6 +87,7 @@ replyJsonMsg ok reply = encode $ object [ T.pack "ok"   .= ok
                                         , T.pack "data" .= reply ]
 
 $(makeAcidic ''WFTemplateSourceMap [ 'postTemplate
-                                 , 'getTemplate
-                                 , 'getTemplateNames ])
+                                   , 'getTemplate
+                                   , 'cacheTemplate
+                                   , 'getTemplateNames ])
 

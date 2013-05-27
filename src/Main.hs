@@ -2,14 +2,15 @@
 module Main where
 
 import Data.WikiFire
+import Types
 
 import Happstack.Server
+import Debug.Trace              ( trace )
 import Data.Maybe               ( fromMaybe )
 import Control.Applicative      ( optional )
-import Control.Monad            ( msum, void )
-import Control.Monad.IO.Class   ( liftIO )
+import Control.Monad            ( msum )
 import Control.Exception        ( bracket )
-import Data.Acid                ( AcidState, Query, Update, makeAcidic, openLocalState )
+import Data.Acid                ( AcidState, openLocalState )
 import Data.Acid.Local          ( createCheckpointAndClose )
 import Data.Acid.Advanced       ( query', update' )
 
@@ -58,7 +59,7 @@ handlePostTemplate acid = do
     src  <- look "source"
     mCt  <- optional $ look "contentType"
     let ct = fromMaybe "text/plain" mCt
-    let t = WFTemplate (L.pack ct) (L.pack src)
+    let t = WFTemplate (L.pack ct) (L.pack src) Nothing
     msg <- update' acid $ PostTemplate name t
     ok $ contentLength $ toResponse msg
 
@@ -71,5 +72,10 @@ handleRenderTemplate :: AcidState WFTemplateSourceMap -> String -> ServerPart Re
 handleRenderTemplate acid name = do
     mT <- query' acid $ GetTemplate name
     case mT of
-        Nothing                  -> notFound $ toResponse ()
-        Just (WFTemplate ct src) -> ok $ toResponseBS (C.pack $ L.unpack ct) src
+        Nothing                               -> notFound $ toResponse ()
+        Just   (WFTemplate ct _ (Just cache)) -> ok $ toResponseBS (C.pack $ L.unpack ct) cache
+        Just t@(WFTemplate ct _ Nothing)      -> do
+            trace ("Cacheing " ++ name ++ "...") $ return ()
+            rendering <- update' acid $ CacheTemplate name t
+            ok $ toResponseBS (C.pack $ L.unpack ct) rendering
+
