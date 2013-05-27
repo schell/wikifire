@@ -67,14 +67,13 @@ getTemplate name = M.lookup name <$> ask
 cacheTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
 cacheTemplate _      (WFTemplate _ _   (Just cache)) = return cache
 cacheTemplate name t@(WFTemplate _ src Nothing)      = do
-    cache     <- parseTemplateSource src
     sourceMap <- get
+    cache     <- return src -- renderTemplateSource src sourceMap
     put $ M.insert name t{templateCache=Just cache} sourceMap
     return cache
 
-parseTemplateSource :: B.ByteString -> Update WFTemplateSourceMap B.ByteString
--- Placeholder for real parsing to come.
-parseTemplateSource = return
+renderTemplateSource :: B.ByteString -> WFTemplateSourceMap -> B.ByteString
+renderTemplateSource src sMap = undefined
 
 getTemplateNames :: Query WFTemplateSourceMap B.ByteString
 getTemplateNames = do

@@ -41,4 +41,5 @@ executable wikifire
                        transformers >=0.3.0.0,
                        filepath >=1.3.0.0,
                        directory >=1.1.0.2,
-                       vector >=0.10.0.1
+                       vector >=0.10.0.1,
+                       attoparsec >=0.10.4.0
