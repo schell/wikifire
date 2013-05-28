@@ -2,14 +2,14 @@
 module Parser where
 
 import Control.Applicative  ( (<*>), (*>), (<*), (<$>), (<|>), pure )
-import Data.Text            ( Text, pack, unpack )
 import System.FilePath      ( (</>) )
-import Data.Char            ( isSpace )
+import Data.Word            ( Word8 )
 
-import Data.Attoparsec.Text
+import Data.Attoparsec.ByteString
 import Data.Attoparsec.Combinator
 
-import qualified Data.Map as M
+import qualified Data.Map        as M
+import qualified Data.ByteString as B
 
 {- Types -}
 
@@ -17,63 +17,96 @@ import qualified Data.Map as M
 type Template = [TemplateFragment]
 
 -- | Each fragment can be a sublist of fragments or a command.
-data TemplateFragment = FragmentText    Text            |
+data TemplateFragment = FragmentText    B.ByteString    |
                         FragmentCommand TemplateCommand |
                         FragmentOutput  OutputVariable  deriving (Show, Eq)
 
--- | A command with a name, variable number of arguments and a map of input variables.
+-- | A command with a name, variable number of arguments and a map of fragment variables.
 data TemplateCommand = RenderTemplateCommand RenderTemplateArgs deriving (Show, Eq)
 
 -- | The render template command arguments.
-type RenderTemplateArgs = (FilePath, InputVariables)
+type RenderTemplateArgs = (B.ByteString, InputVariables)
 
--- | A map for all a template's variables used to input to a render.
-type InputVariables = M.Map Text Text
+-- | A map for all a template's variables used to fragment to a render.
+type InputVariables = M.Map B.ByteString B.ByteString
 
--- | An input variable is a name and a value.
-data InputVariable = InputVariable InputVariableName VariableValue deriving (Show, Eq)
-type InputVariableName = Text
-type VariableValue = Text
+-- | An variable is a name and a value.
+data FragmentVariable     = FragmentVariable FragmentVariableName FragmentValue deriving (Show, Eq)
+type FragmentVariableName = B.ByteString
+type FragmentValue        = B.ByteString
 
 -- | An output variable is its name. It represents a placeholder for some rendered text.
-type OutputVariable = Text
+type OutputVariable = B.ByteString
+
+{- Helpers -}
+
+skipSpace :: Parser ()
+skipSpace = skipWhile isSpace
+
+isSpace :: Word8 -> Bool
+isSpace = flip B.elem "\n \t\r"
+
+isBracket :: Word8 -> Bool
+isBracket = flip B.elem "[]"
 
 {- Parsers -}
 
+template :: Parser Template
+template = manyTill templateFragment endOfInput
+
+templateFragment :: Parser TemplateFragment
+templateFragment =
+    fragmentTemplateCommand <|>
+    fragmentOutputVariable  <|>
+    fragmentText
+
 fragmentText :: Parser TemplateFragment
-fragmentText = FragmentText . pack <$> manyTill anyChar fragmentStart
+fragmentText = FragmentText <$> takeWhile1 (not . isBracket)
     <?> "FragmentText"
-    where fragmentStart = try (string "[{") <|> try (string "[|")
+
+fragmentOutputVariable :: Parser TemplateFragment
+fragmentOutputVariable = FragmentOutput <$> outputVariable
+
+fragmentTemplateCommand :: Parser TemplateFragment
+fragmentTemplateCommand = FragmentCommand <$> (fragmentStart *> renderTemplateCommand)
 
 renderTemplateCommand :: Parser TemplateCommand
-renderTemplateCommand = RenderTemplateCommand <$> "renderTemplate " .*> renderTemplateArgs
+renderTemplateCommand = string "renderTemplate " *> (RenderTemplateCommand <$> renderTemplateArgs)
     <?> "RenderTemplateCommand"
 
 renderTemplateArgs :: Parser RenderTemplateArgs
-renderTemplateArgs = (,) <$> filepath <*> inputVariables
+renderTemplateArgs = (,) <$> filepath <*> fragmentVariables
 
-filepath :: Parser FilePath
-filepath = unpack <$> takeTill isSpace
+filepath :: Parser B.ByteString
+filepath = takeTill isSpace
     <?> "FilePath"
 
-inputVariables :: Parser InputVariables
-inputVariables = foldVariables <$> manyTill (skipSpace *> inputVariable <* skipSpace) end
-    <?> "InputVariables"
-    where foldVariables = foldl (\m (InputVariable n v) -> M.insert n v m) M.empty
-          end           = try (string "}]")
-
 outputVariable :: Parser OutputVariable
-outputVariable = string "[|" *> takeWhile1 (/= '|') <* string "|]"
-                 <?> "OutputVariable"
+outputVariable = fragmentStart *> takeWhile1 (\c -> not (isSpace c) && not (isBracket c)) <* fragmentEnd
+    <?> "OutputVariable"
 
-inputVariable :: Parser InputVariable
-inputVariable = InputVariable <$> inputVariableName <* skipSpace <*> variableValue
-    <?> "InputVariable"
+fragmentVariables :: Parser InputVariables
+fragmentVariables = option M.empty (foldVariables <$> manyTill (skipSpace *> fragmentVariable <* skipSpace) fragmentEnd)
+    <?> "InputVariables"
+    where foldVariables = foldl (\m (FragmentVariable n v) -> M.insert n v m) M.empty
 
-inputVariableName :: Parser InputVariableName
-inputVariableName = takeWhile1 (not . isHorizontalSpace)
-    <?> "InputVariableName"
+fragmentVariable :: Parser FragmentVariable
+fragmentVariable = FragmentVariable <$> fragmentVariableName <* skipSpace <*> fragmentValue
+    <?> "FragmentVariable"
 
-variableValue :: Parser VariableValue
-variableValue = pack <$> (string "[=" *> manyTill anyChar (try (string "=]")))
-    <?> "VariableValue"
+fragmentVariableName :: Parser FragmentVariableName
+fragmentVariableName = takeWhile1 (not . isSpace)
+    <?> "FragmentVariableName"
+
+fragmentValue :: Parser FragmentValue
+fragmentValue = B.pack <$> (fragmentStart *> manyTill anyWord8 fragmentEnd)
+    <?> "FragmentValue"
+
+fragmentStart :: Parser B.ByteString
+fragmentStart = string "[["
+    <?> "FragmentStart"
+
+fragmentEnd :: Parser B.ByteString
+fragmentEnd = string "]]"
+    <?> "FragmentEnd"
+
