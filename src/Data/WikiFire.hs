@@ -11,7 +11,6 @@ import Data.Acid
 import Data.Aeson
 import Paths_wikifire
 import System.Directory
-import Data.Attoparsec        ( parseOnly )
 import Data.Vector            ( fromList )
 import Data.Maybe             ( fromMaybe )
 import Control.Monad          ( foldM )
@@ -53,14 +52,14 @@ toWFTemplate (RouteCfg _ mT p) = do
     let filePath = foldl (</>) "" p
         t        = B.pack $ fromMaybe "text/html" mT
     src <- readFile filePath
-    return $ WFTemplate t (B.pack src) Nothing
+    return $ WFTemplate t (B.pack src)
 
 postTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
 postTemplate name t =
     -- Parse the new template first.
     case parseWFTemplate t of
         Left err       -> return $ replyJsonMsg False $ object [ T.pack "name" .= name
-                                                               , T.pack "error".= T.pack err
+                                                               , T.pack "error".= T.pack (B.unpack err)
                                                                ]
         Right template -> do
             sourceMap      <- get
@@ -73,16 +72,8 @@ postTemplate name t =
 getTemplate :: String -> Query WFTemplateSourceMap (Maybe WFTemplate)
 getTemplate name = M.lookup name <$> ask
 
-cacheTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
-cacheTemplate _      (WFTemplate _ _   (Just cache)) = return cache
-cacheTemplate name t@(WFTemplate _ src Nothing)      = do
-    sourceMap <- get
-    cache     <- return src -- renderTemplateSource src sourceMap
-    put $ M.insert name t{templateCache=Just cache} sourceMap
-    return cache
-
 renderTemplateSource :: B.ByteString -> WFTemplateSourceMap -> B.ByteString
-renderTemplateSource src sMap = undefined
+renderTemplateSource _ _ = undefined
 
 getTemplateNames :: Query WFTemplateSourceMap B.ByteString
 getTemplateNames = do
@@ -96,6 +87,5 @@ replyJsonMsg ok reply = encode $ object [ T.pack "ok"   .= ok
 
 $(makeAcidic ''WFTemplateSourceMap [ 'postTemplate
                                    , 'getTemplate
-                                   , 'cacheTemplate
                                    , 'getTemplateNames ])
 

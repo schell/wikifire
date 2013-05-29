@@ -19,11 +19,10 @@ type WFTemplateSourceMap = M.Map String WFTemplate
 
 data WFTemplate = WFTemplate { templateType  :: L.ByteString
                              , templateSource:: L.ByteString
-                             , templateCache :: Maybe L.ByteString
                              } deriving (Eq, Typeable)
 
 instance Show WFTemplate where
-    show (WFTemplate ct src _) = "WFTemplate { templateType='"++ L.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
+    show (WFTemplate ct src) = "WFTemplate { templateType='"++ L.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
         where suf xs = if length xs >= chars
                        then xs ++ "..."
                        else xs

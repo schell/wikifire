@@ -11,15 +11,25 @@ import Data.Attoparsec.ByteString
 import qualified Data.Attoparsec.ByteString.Lazy as LP
 import qualified Data.Map                        as M
 import qualified Data.ByteString                 as B
+import qualified Data.ByteString.Lazy            as LB
+import qualified Data.ByteString.Lazy.Char8      as LBC
 
 {- Big Top -}
 
-parseWFTemplate :: WFTemplate -> Either String Template
-parseWFTemplate (WFTemplate ct src _)  =
+parseWFTemplate :: WFTemplate -> Either LB.ByteString Template
+parseWFTemplate (WFTemplate _ src)  =
     case LP.parse template src of
-        LP.Fail t ctx err  -> Left $ "Template parse errored" 
-        LP.Done _ template -> Right template
+        LP.Done _ t       -> Right t
+        LP.Fail t ctx err -> Left $ errMsg t (map LBC.pack ctx) (LBC.pack err)
 
+    where errMsg t c e = LB.intercalate "\n" [ errPosMsg t
+                                             , errCtx c
+                                             , "error: " `LB.append` e
+                                             ]
+          errPosMsg t  = "Template parse errored at: " `LB.append` if LB.length t <= 10 
+                                                                  then t 
+                                                                  else LB.take 10 t `LB.append` "..."
+          errCtx ctx   = "\n  context:" `LB.append` LB.intercalate "    \n" ctx
 {- Helpers -}
 
 skipSpace :: Parser ()
