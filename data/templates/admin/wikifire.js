@@ -29,8 +29,8 @@ angular.module('wikifire', ['ngResource']).
     Template.prototype.save = function Template_save(cb) {
       var self = this;
       return $http({
-        method : 'POST', 
-        url: '/', 
+        method : 'POST',
+        url: '/',
         headers: {'Content-Type' : 'application/x-www-form-urlencoded'},
         data : 'name='+encodeURIComponent(self.name)+'&source='+encodeURIComponent(self.source)
       }).
@@ -43,7 +43,7 @@ angular.module('wikifire', ['ngResource']).
     };
 
     Template.prototype.view = function Template_view() {
-      window.location.href = $location.protocol()+'://'+$location.host()+':'+$location.port()+this.name; 
+      window.location.href = $location.protocol()+'://'+$location.host()+':'+$location.port()+this.name;
     };
     return Template;
 }).
@@ -66,16 +66,17 @@ function CreateCtrl($scope, $routeParams, Template) {
     t.get();
   }
 
-  viewTemplateBtn.css('display','none'); 
+  viewTemplateBtn.css('display','none');
 
   $scope.template = t;
   $scope.save = function CreateCtrl_save() {
-    viewTemplateBtn.css('display','none'); 
+    viewTemplateBtn.css('display','none');
     $scope.saveStatus = 'Saving...';
     t.save().
       success(function (data) {
         $scope.saveStatus = 'Done!';
-        viewTemplateBtn.css('display','inline'); 
+        $scope.response = data;
+        viewTemplateBtn.css('display','inline');
     }).
       error(function (data) {
         $scope.saveStatus = ':( Oh no! There was an error.';

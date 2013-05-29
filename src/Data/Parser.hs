@@ -1,42 +1,24 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Parser where
+module Data.Parser ( parseWFTemplate ) where
 
-import Control.Applicative  ( (<*>), (*>), (<*), (<$>), (<|>), pure )
-import System.FilePath      ( (</>) )
+import Types
+
+import Control.Applicative  ( (<*>), (*>), (<*), (<$>), (<|>) )
 import Data.Word            ( Word8 )
 
 import Data.Attoparsec.ByteString
-import Data.Attoparsec.Combinator
 
-import qualified Data.Map        as M
-import qualified Data.ByteString as B
+import qualified Data.Attoparsec.ByteString.Lazy as LP
+import qualified Data.Map                        as M
+import qualified Data.ByteString                 as B
 
-{- Types -}
+{- Big Top -}
 
--- | The top level parsed template is a list of fragments.
-type Template = [TemplateFragment]
-
--- | Each fragment can be a sublist of fragments or a command.
-data TemplateFragment = FragmentText    B.ByteString    |
-                        FragmentCommand TemplateCommand |
-                        FragmentOutput  OutputVariable  deriving (Show, Eq)
-
--- | A command with a name, variable number of arguments and a map of fragment variables.
-data TemplateCommand = RenderTemplateCommand RenderTemplateArgs deriving (Show, Eq)
-
--- | The render template command arguments.
-type RenderTemplateArgs = (B.ByteString, InputVariables)
-
--- | A map for all a template's variables used to fragment to a render.
-type InputVariables = M.Map B.ByteString B.ByteString
-
--- | An variable is a name and a value.
-data FragmentVariable     = FragmentVariable FragmentVariableName FragmentValue deriving (Show, Eq)
-type FragmentVariableName = B.ByteString
-type FragmentValue        = B.ByteString
-
--- | An output variable is its name. It represents a placeholder for some rendered text.
-type OutputVariable = B.ByteString
+parseWFTemplate :: WFTemplate -> Either String Template
+parseWFTemplate (WFTemplate ct src _)  =
+    case LP.parse template src of
+        LP.Fail t ctx err  -> Left $ "Template parse errored" 
+        LP.Done _ template -> Right template
 
 {- Helpers -}
 

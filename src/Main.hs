@@ -59,7 +59,7 @@ handlePostTemplate acid = do
     src  <- look "source"
     mCt  <- optional $ look "contentType"
     let ct = fromMaybe "text/plain" mCt
-    let t = WFTemplate (L.pack ct) (L.pack src) Nothing
+    let t  = WFTemplate (L.pack ct) (L.pack src) Nothing
     msg <- update' acid $ PostTemplate name t
     ok $ contentLength $ toResponse msg
 

@@ -11,22 +11,23 @@ import Control.Monad          ( mzero )
 import Data.SafeCopy          ( base, deriveSafeCopy )
 
 import qualified Data.Map                   as M
-import qualified Data.ByteString.Lazy.Char8 as B
+import qualified Data.ByteString.Lazy.Char8 as L
+import qualified Data.ByteString            as B
 
 -- | The main acid store.
 type WFTemplateSourceMap = M.Map String WFTemplate
 
-data WFTemplate = WFTemplate { templateType  :: B.ByteString
-                             , templateSource:: B.ByteString
-                             , templateCache :: Maybe B.ByteString
+data WFTemplate = WFTemplate { templateType  :: L.ByteString
+                             , templateSource:: L.ByteString
+                             , templateCache :: Maybe L.ByteString
                              } deriving (Eq, Typeable)
 
 instance Show WFTemplate where
-    show (WFTemplate ct src _) = "WFTemplate { templateType='"++ B.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
+    show (WFTemplate ct src _) = "WFTemplate { templateType='"++ L.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
         where suf xs = if length xs >= chars
                        then xs ++ "..."
                        else xs
-              trunc  = take chars . B.unpack
+              trunc  = take chars . L.unpack
               chars  = 10
 
 -- | Represents a tree of template renders.
@@ -65,4 +66,31 @@ instance FromJSON RouteCfg where
                               v .:? "routeContentType" <*>
                               v .:  "routeFilePath"
     parseJSON _          = mzero
+
+{- Parser Types -}
+
+-- | The top level parsed template is a list of fragments.
+type Template = [TemplateFragment]
+
+-- | Each fragment can be a sublist of fragments or a command.
+data TemplateFragment = FragmentText    B.ByteString    |
+                        FragmentCommand TemplateCommand |
+                        FragmentOutput  OutputVariable  deriving (Show, Eq)
+
+-- | A command with a name, variable number of arguments and a map of fragment variables.
+data TemplateCommand = RenderTemplateCommand RenderTemplateArgs deriving (Show, Eq)
+
+-- | The render template command arguments.
+type RenderTemplateArgs = (B.ByteString, InputVariables)
+
+-- | A map for all a template's variables used to fragment to a render.
+type InputVariables = M.Map B.ByteString B.ByteString
+
+-- | An variable is a name and a value.
+data FragmentVariable     = FragmentVariable FragmentVariableName FragmentValue deriving (Show, Eq)
+type FragmentVariableName = B.ByteString
+type FragmentValue        = B.ByteString
+
+-- | An output variable is its name. It represents a placeholder for some rendered text.
+type OutputVariable = B.ByteString
 

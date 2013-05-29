@@ -5,11 +5,13 @@
 module Data.WikiFire where
 
 import Types
+import Data.Parser
 
 import Data.Acid
 import Data.Aeson
 import Paths_wikifire
 import System.Directory
+import Data.Attoparsec        ( parseOnly )
 import Data.Vector            ( fromList )
 import Data.Maybe             ( fromMaybe )
 import Control.Monad          ( foldM )
@@ -54,12 +56,19 @@ toWFTemplate (RouteCfg _ mT p) = do
     return $ WFTemplate t (B.pack src) Nothing
 
 postTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
-postTemplate name t = do
-    sourceMap      <- get
-    put $ M.insert name t sourceMap
-    return $ replyJsonMsg True $ object [ T.pack "name"   .= name
-                                        , T.pack "bytes"  .= B.length (templateSource t)
-                                        ]
+postTemplate name t =
+    -- Parse the new template first.
+    case parseWFTemplate t of
+        Left err       -> return $ replyJsonMsg False $ object [ T.pack "name" .= name
+                                                               , T.pack "error".= T.pack err
+                                                               ]
+        Right template -> do
+            sourceMap      <- get
+            put $ M.insert name t sourceMap
+            return $ replyJsonMsg True $ object [ T.pack "name"  .= name
+                                                , T.pack "bytes" .= B.length (templateSource t)
+                                                , T.pack "parse" .= show template
+                                                ]
 
 getTemplate :: String -> Query WFTemplateSourceMap (Maybe WFTemplate)
 getTemplate name = M.lookup name <$> ask

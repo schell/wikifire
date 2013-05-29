@@ -2,6 +2,13 @@
     {"routeName"        : "/",
      "routeFilePath"    : ["templates","index.html"]},
 
+    {"routeName"        : "/nav.html",
+     "routeFilePath"    : ["templates","index.html"]},
+
+    {"routeName"        : "/content.html",
+     "routeFilePath"    : ["templates","index.html"]},
+
+
     {"routeName"        : "/admin",
      "routeFilePath"    : ["templates","admin","index.html"]},
 
