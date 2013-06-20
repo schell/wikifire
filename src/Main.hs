@@ -59,7 +59,7 @@ handleGetTemplate acid name = do
     mTemplate <- query' acid $ GetTemplate name
     case mTemplate of
         Nothing -> notFound (toResponse ())
-        Just t  -> ok $ contentLength $ toResponse $ templateSource t
+        Just t  -> ok $ contentLength $ toResponseBS (C.pack "text/plain") $ templateSource t
 
 handlePostTemplate :: AcidState WFTemplateSourceMap -> TemplateMapState -> ServerPart Response
 handlePostTemplate acid tMap = do
