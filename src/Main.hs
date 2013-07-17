@@ -133,7 +133,7 @@ renderTemplateFromAcid acid name tMapVar = do
                     return $ Right template
 
 renderTemplate :: Template -> TemplateMap -> ServerPart Response
-renderTemplate t m = ok $ toResponse $ resolveTemplateWithMap t m
+renderTemplate t m = ok $ toResponse $ encodeUtf8 $ resolveTemplateWithMap t m
 
 getTemplateMap :: TemplateMapState -> IO TemplateMap
 getTemplateMap = readMVar
