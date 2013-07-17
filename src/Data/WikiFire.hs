@@ -2,6 +2,8 @@
   GeneralizedNewtypeDeriving, MultiParamTypeClasses, TypeFamilies,
   OverloadedStrings, DeriveDataTypeable, TypeSynonymInstances,
   TemplateHaskell #-}
+{-# OPTIONS -fno-warn-orphans #-}
+
 module Data.WikiFire where
 
 import Types
@@ -9,11 +11,9 @@ import Data.Parser
 
 import Data.Acid
 import Data.Aeson
-import Paths_wikifire
 import System.Directory
+import Control.Monad
 import Data.Vector            ( fromList )
-import Data.Maybe             ( fromMaybe )
-import Control.Monad          ( foldM )
 import Control.Monad.State    ( get, put )
 import Control.Monad.Reader   ( ask )
 import Control.Applicative    ( (<$>) )
@@ -24,11 +24,11 @@ import qualified Data.ByteString.Lazy.Char8 as B
 import qualified Data.Text                  as T
 
 
-initialTemplateSourceMap :: IO WFTemplateSourceMap
-initialTemplateSourceMap = do
-    datadir <- getDataDir
+initialTemplateSourceMap :: FilePath -> IO WFTemplateSourceMap
+initialTemplateSourceMap datadir = do
     let configFile = datadir </> "routes.json"
     routesExist <- doesFileExist configFile
+    unless routesExist $ putStrLn $ "Could not find routes.json at " ++ show configFile
     routeMap    <- if not routesExist
                    then return []
                    else do config <- readFile $ datadir </> "routes.json"
@@ -50,30 +50,30 @@ addRoutes = foldM (\m r -> do
 toWFTemplate :: RouteCfg -> IO WFTemplate
 toWFTemplate (RouteCfg _ mT p) = do
     let filePath = foldl (</>) "" p
-        t        = B.pack $ fromMaybe "text/html" mT
+        t        = maybe WFTText readWFTemplateType mT
     src <- readFile filePath
-    return $ WFTemplate t (B.pack src)
+    return $ WFTemplate t (T.pack src)
 
 postTemplate :: String -> WFTemplate -> Update WFTemplateSourceMap B.ByteString
 postTemplate name t =
     -- Parse the new template first.
     case parseWFTemplate t of
         Left err       -> return $ replyJsonMsg False $ object [ T.pack "name" .= name
-                                                               , T.pack "error".= T.pack (B.unpack err)
+                                                               , T.pack "error".= err
                                                                ]
         Right template -> do
             sourceMap      <- get
             put $ M.insert name t sourceMap
             return $ replyJsonMsg True $ object [ T.pack "name"  .= name
-                                                , T.pack "bytes" .= B.length (templateSource t)
+                                                , T.pack "bytes" .= T.length (templateSource t)
                                                 , T.pack "parse" .= show template
                                                 ]
 
 getTemplate :: String -> Query WFTemplateSourceMap (Maybe WFTemplate)
 getTemplate name = M.lookup name <$> ask
 
-renderTemplateSource :: B.ByteString -> WFTemplateSourceMap -> B.ByteString
-renderTemplateSource _ _ = undefined
+allTemplateNames :: Query WFTemplateSourceMap [String]
+allTemplateNames = M.keys <$> ask
 
 getTemplateNames :: Query WFTemplateSourceMap B.ByteString
 getTemplateNames = do
@@ -87,5 +87,7 @@ replyJsonMsg ok reply = encode $ object [ T.pack "ok"   .= ok
 
 $(makeAcidic ''WFTemplateSourceMap [ 'postTemplate
                                    , 'getTemplate
-                                   , 'getTemplateNames ])
+                                   , 'getTemplateNames
+                                   , 'allTemplateNames
+                                   ])
 

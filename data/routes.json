@@ -3,11 +3,10 @@
      "routeFilePath"    : ["templates","index.html"]},
 
     {"routeName"        : "/nav.html",
-     "routeFilePath"    : ["templates","index.html"]},
+     "routeFilePath"    : ["templates","nav.html"]},
 
     {"routeName"        : "/content.html",
-     "routeFilePath"    : ["templates","index.html"]},
-
+     "routeFilePath"    : ["templates","content.html"]},
 
     {"routeName"        : "/admin",
      "routeFilePath"    : ["templates","admin","index.html"]},

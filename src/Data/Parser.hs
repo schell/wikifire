@@ -1,45 +1,40 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Data.Parser ( parseWFTemplate ) where
+module Data.Parser (
+    parseWFTemplate
+) where
 
 import Types
 
 import Control.Applicative  ( (<*>), (*>), (<*), (<$>), (<|>) )
-import Data.Word            ( Word8 )
 
-import Data.Attoparsec.ByteString
+import Data.Attoparsec.Text
+import Data.Char
+import Data.List
 
-import qualified Data.Attoparsec.ByteString.Lazy as LP
 import qualified Data.Map                        as M
-import qualified Data.ByteString                 as B
-import qualified Data.ByteString.Lazy            as LB
-import qualified Data.ByteString.Lazy.Char8      as LBC
+import qualified Data.Text                       as T
 
 {- Big Top -}
 
-parseWFTemplate :: WFTemplate -> Either LB.ByteString Template
-parseWFTemplate (WFTemplate _ src)  =
-    case LP.parse template src of
-        LP.Done _ t       -> Right t
-        LP.Fail t ctx err -> Left $ errMsg t (map LBC.pack ctx) (LBC.pack err)
+parseWFTemplate :: WFTemplate -> Either T.Text Template
+parseWFTemplate (WFTemplate WFTBinary src) = Right [FragmentText src]
+parseWFTemplate (WFTemplate _ src)  = handle $ parse template src
+    where handle r = case r of
+                         Partial c      -> handle $ c T.empty
+                         Done _ t       -> Right t
+                         Fail t ctx err -> Left $ T.concat [ "Parsing failed in contexts "
+                                                           , T.pack $ intercalate ", " ctx
+                                                           , " with error:\n  "
+                                                           , T.pack err
+                                                           , " at input "
+                                                           , T.take 10 t
+                                                           , "..."
+                                                           ]
 
-    where errMsg t c e = LB.intercalate "\n" [ errPosMsg t
-                                             , errCtx c
-                                             , "error: " `LB.append` e
-                                             ]
-          errPosMsg t  = "Template parse errored at: " `LB.append` if LB.length t <= 10 
-                                                                  then t 
-                                                                  else LB.take 10 t `LB.append` "..."
-          errCtx ctx   = "\n  context:" `LB.append` LB.intercalate "    \n" ctx
 {- Helpers -}
 
-skipSpace :: Parser ()
-skipSpace = skipWhile isSpace
-
-isSpace :: Word8 -> Bool
-isSpace = flip B.elem "\n \t\r"
-
-isBracket :: Word8 -> Bool
-isBracket = flip B.elem "[]"
+isBracket :: Char -> Bool
+isBracket = flip elem "[]"
 
 {- Parsers -}
 
@@ -50,11 +45,22 @@ templateFragment :: Parser TemplateFragment
 templateFragment =
     fragmentTemplateCommand <|>
     fragmentOutputVariable  <|>
-    fragmentText
+    fragmentText            <|>
+    fragmentBracketText
 
 fragmentText :: Parser TemplateFragment
 fragmentText = FragmentText <$> takeWhile1 (not . isBracket)
     <?> "FragmentText"
+
+fragmentBracketText :: Parser TemplateFragment
+fragmentBracketText = FragmentText <$> (matchNextAndThenNot '[' <|> matchNextAndThenNot ']')
+
+matchNextAndThenNot :: Char -> Parser T.Text
+matchNextAndThenNot ch = do
+    c  <- char ch
+    nc <- notChar ch
+    return $ T.cons c $ T.singleton nc
+    <?> "MatchNextAndThenNot" ++ [' ',ch]
 
 fragmentOutputVariable :: Parser TemplateFragment
 fragmentOutputVariable = FragmentOutput <$> outputVariable
@@ -69,7 +75,7 @@ renderTemplateCommand = string "renderTemplate " *> (RenderTemplateCommand <$> r
 renderTemplateArgs :: Parser RenderTemplateArgs
 renderTemplateArgs = (,) <$> filepath <*> fragmentVariables
 
-filepath :: Parser B.ByteString
+filepath :: Parser T.Text
 filepath = takeTill isSpace
     <?> "FilePath"
 
@@ -91,14 +97,14 @@ fragmentVariableName = takeWhile1 (not . isSpace)
     <?> "FragmentVariableName"
 
 fragmentValue :: Parser FragmentValue
-fragmentValue = B.pack <$> (fragmentStart *> manyTill anyWord8 fragmentEnd)
+fragmentValue = T.pack <$> (fragmentStart *> manyTill anyChar fragmentEnd)
     <?> "FragmentValue"
 
-fragmentStart :: Parser B.ByteString
+fragmentStart :: Parser T.Text
 fragmentStart = string "[["
     <?> "FragmentStart"
 
-fragmentEnd :: Parser B.ByteString
+fragmentEnd :: Parser T.Text
 fragmentEnd = string "]]"
     <?> "FragmentEnd"
 

@@ -5,28 +5,38 @@
 module Types where
 
 import Data.Aeson
-import Data.Typeable          ( Typeable )
-import Control.Applicative    ( (<$>), (<*>) )
-import Control.Monad          ( mzero )
-import Data.SafeCopy          ( base, deriveSafeCopy )
+import Control.Concurrent.MVar ( MVar )
+import Data.Typeable           ( Typeable )
+import Control.Applicative     ( (<$>), (<*>) )
+import Control.Monad           ( mzero )
+import Data.SafeCopy           ( base, deriveSafeCopy )
 
-import qualified Data.Map                   as M
-import qualified Data.ByteString.Lazy.Char8 as L
-import qualified Data.ByteString            as B
+import qualified Data.Text as T
+import qualified Data.Map  as M
 
 -- | The main acid store.
 type WFTemplateSourceMap = M.Map String WFTemplate
 
-data WFTemplate = WFTemplate { templateType  :: L.ByteString
-                             , templateSource:: L.ByteString
+data WFTemplateType = WFTText | WFTBinary deriving (Show, Eq, Typeable )
+
+readWFTemplateType :: String -> WFTemplateType
+readWFTemplateType "image/png" = WFTBinary
+readWFTemplateType _ = WFTText
+
+data WFTemplate = WFTemplate { templateType  :: WFTemplateType
+                             , templateSource:: T.Text
                              } deriving (Eq, Typeable)
 
 instance Show WFTemplate where
-    show (WFTemplate ct src) = "WFTemplate { templateType='"++ L.unpack ct ++ "' templateSrc='" ++ suf (trunc src) ++ "'}"
-        where suf xs = if length xs >= chars
-                       then xs ++ "..."
-                       else xs
-              trunc  = take chars . L.unpack
+    show (WFTemplate ct src) = concat [ "WFTemplate { templateType='"
+                                      , show ct
+                                      , "' templateSrc='"
+                                      , suf src
+                                      , "'}"
+                                      ]
+        where suf xs = T.unpack $ if T.length xs >= chars
+                                  then T.take chars xs `T.append` T.pack "..."
+                                  else xs
               chars  = 10
 
 -- | Represents a tree of template renders.
@@ -51,7 +61,7 @@ data RouteCfg  = RouteCfg { routeName         :: String       -- ^ Path of the t
                           , routeFilePath     :: [String]     -- ^ Path of the template on disk, each directory being one entry in the array.
                           } deriving (Show, Eq)
 
-
+$(deriveSafeCopy 0 'base ''WFTemplateType)
 $(deriveSafeCopy 0 'base ''WFTemplate)
 
 -- instance FromJSON Config where
@@ -68,11 +78,14 @@ instance FromJSON RouteCfg where
 
 {- Parser Types -}
 
+type TemplateMap = (M.Map String Template)
+type TemplateMapState = MVar TemplateMap
+
 -- | The top level parsed template is a list of fragments.
 type Template = [TemplateFragment]
 
 -- | Each fragment can be a sublist of fragments or a command.
-data TemplateFragment = FragmentText    B.ByteString    |
+data TemplateFragment = FragmentText    T.Text          |
                         FragmentCommand TemplateCommand |
                         FragmentOutput  OutputVariable  deriving (Show, Eq)
 
@@ -80,16 +93,18 @@ data TemplateFragment = FragmentText    B.ByteString    |
 data TemplateCommand = RenderTemplateCommand RenderTemplateArgs deriving (Show, Eq)
 
 -- | The render template command arguments.
-type RenderTemplateArgs = (B.ByteString, InputVariables)
+type RenderTemplateArgs = ( T.Text          -- ^ The name of the template to render.
+                          , InputVariables  -- ^ The input variables to render as the
+                          )                 --   rendered template's output variables.
 
 -- | A map for all a template's variables used to fragment to a render.
-type InputVariables = M.Map B.ByteString B.ByteString
+type InputVariables = M.Map T.Text T.Text
 
--- | An variable is a name and a value.
+-- | A variable is a name and a value.
 data FragmentVariable     = FragmentVariable FragmentVariableName FragmentValue deriving (Show, Eq)
-type FragmentVariableName = B.ByteString
-type FragmentValue        = B.ByteString
+type FragmentVariableName = T.Text
+type FragmentValue        = T.Text
 
 -- | An output variable is its name. It represents a placeholder for some rendered text.
-type OutputVariable = B.ByteString
+type OutputVariable = T.Text
 
