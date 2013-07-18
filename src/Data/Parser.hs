@@ -17,17 +17,18 @@ import qualified Data.Text                       as T
 {- Big Top -}
 
 parseWFTemplate :: WFTemplate -> Either T.Text Template
-parseWFTemplate (WFTemplate WFTBinary src) = Right [FragmentText src]
-parseWFTemplate (WFTemplate _ src)  = handle $ parse template src
+parseWFTemplate (WFTemplate WFTImagePng src) = Right (Template WFTImagePng [FragmentText src])
+parseWFTemplate (WFTemplate WFTApplicationOctetStream src) = Right (Template WFTApplicationOctetStream [FragmentText src])
+parseWFTemplate (WFTemplate t src)  = handle $ parse (template t) src
     where handle r = case r of
-                         Partial c      -> handle $ c T.empty
-                         Done _ t       -> Right t
-                         Fail t ctx err -> Left $ T.concat [ "Parsing failed in contexts "
+                         Partial c       -> handle $ c T.empty
+                         Done _ tmp      -> Right tmp
+                         Fail tx ctx err -> Left $ T.concat [ "Parsing failed in contexts "
                                                            , T.pack $ intercalate ", " ctx
                                                            , " with error:\n  "
                                                            , T.pack err
                                                            , " at input "
-                                                           , T.take 10 t
+                                                           , T.take 10 tx
                                                            , "..."
                                                            ]
 
@@ -38,8 +39,8 @@ isBracket = flip elem "[]"
 
 {- Parsers -}
 
-template :: Parser Template
-template = manyTill templateFragment endOfInput
+template :: WFTemplateType -> Parser Template
+template t = Template t <$> manyTill templateFragment endOfInput
 
 templateFragment :: Parser TemplateFragment
 templateFragment =

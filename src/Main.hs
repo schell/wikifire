@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, OverloadedStrings #-}
 module Main where
 
 import Data.WikiFire
@@ -87,7 +87,7 @@ handlePostTemplate acid tMapVar = do
     mCt  <- optional $ look "contentType"
     tMap <- liftIO $ getTemplateMap tMapVar
     void $ liftIO $ putStrLn $ "Posting template to " ++ show name
-    let ct  = maybe WFTText readWFTemplateType mCt
+    let ct  = maybe WFTTextPlain readWFTemplateType mCt
         wft = WFTemplate ct $ T.pack src
         eTmp= parseWFTemplate wft
     case eTmp of
@@ -98,7 +98,7 @@ handlePostTemplate acid tMapVar = do
             if success
               then do msg <- update' acid $ PostTemplate name wft
                       ok $ contentLength $ toResponse msg
-              else ok $ contentLength $ toResponse "Could not store parsed template."
+              else ok $ contentLength $ toResponse ("Could not store parsed template." :: L.ByteString)
 
 handleGetTemplateNames :: AcidState WFTemplateSourceMap -> ServerPart Response
 handleGetTemplateNames acid = do
@@ -133,7 +133,15 @@ renderTemplateFromAcid acid name tMapVar = do
                     return $ Right template
 
 renderTemplate :: Template -> TemplateMap -> ServerPart Response
-renderTemplate t m = ok $ toResponse $ encodeUtf8 $ resolveTemplateWithMap t m
+renderTemplate t@(Template WFTTextPlain _) = ok . toResponse . resolveTemplateWithMap t
+renderTemplate t@(Template typ _) = okWithType typ . resolveTemplateWithMap t
+
+convertText :: T.Text -> L.ByteString
+convertText = L.fromStrict . encodeUtf8
+
+okWithType :: WFTemplateType -> T.Text -> ServerPart Response
+okWithType t@WFTImagePng = ok . contentLength . toResponseBS (C.pack $ showWFTemplateType t) . convertText
+okWithType t = ok . toResponseBS (C.pack $ showWFTemplateType t) . convertText
 
 getTemplateMap :: TemplateMapState -> IO TemplateMap
 getTemplateMap = readMVar

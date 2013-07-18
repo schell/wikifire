@@ -38,10 +38,10 @@ getRecurses k = foldl g 0 . recurses
                          else a
 
 resolve :: Template -> Reader Env T.Text
-resolve (FragmentText txt:frags)    = local (addText txt) $ resolve frags
-resolve (FragmentOutput out:frags)  = local (addOutVars out) $ resolve frags
-resolve (FragmentCommand cmd:frags) = local (addCommand cmd) $ resolve frags
-resolve [] = asks source
+resolve (Template t (FragmentText txt:frags))    = local (addText txt) $ resolve (Template t frags)
+resolve (Template t (FragmentOutput out:frags))  = local (addOutVars out) $ resolve (Template t frags)
+resolve (Template t (FragmentCommand cmd:frags)) = local (addCommand cmd) $ resolve (Template t frags)
+resolve (Template _ []) = asks source
 
 addOutVars :: OutputVariable -> Env -> Env
 addOutVars out e = addText (fromMaybe (outVarError out) mInVal) e

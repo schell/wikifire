@@ -50,7 +50,7 @@ addRoutes = foldM (\m r -> do
 toWFTemplate :: RouteCfg -> IO WFTemplate
 toWFTemplate (RouteCfg _ mT p) = do
     let filePath = foldl (</>) "" p
-        t        = maybe WFTText readWFTemplateType mT
+        t        = maybe WFTTextPlain readWFTemplateType mT
     src <- readFile filePath
     return $ WFTemplate t (T.pack src)
 

@@ -17,11 +17,28 @@ import qualified Data.Map  as M
 -- | The main acid store.
 type WFTemplateSourceMap = M.Map String WFTemplate
 
-data WFTemplateType = WFTText | WFTBinary deriving (Show, Eq, Typeable )
+data WFTemplateType = WFTTextPlain
+                    | WFTTextHtml
+                    | WFTTextJavascript
+                    | WFTImagePng
+                    | WFTApplicationOctetStream
+                    deriving (Show, Eq, Typeable)
+
+wfTypeMap :: [(String,WFTemplateType)]
+wfTypeMap = [ ("image/png", WFTImagePng)
+            , ("text/plain", WFTTextPlain)
+            , ("text/html", WFTTextHtml)
+            , ("text/javascript", WFTTextJavascript)
+            , ("application/octet-stream", WFTApplicationOctetStream)
+            ]
 
 readWFTemplateType :: String -> WFTemplateType
-readWFTemplateType "image/png" = WFTBinary
-readWFTemplateType _ = WFTText
+readWFTemplateType s = foldl checkType WFTTextPlain wfTypeMap
+    where checkType t (s', t') = if s' == s then t' else t
+
+showWFTemplateType :: WFTemplateType -> String
+showWFTemplateType t = foldl checkType "text/plain" wfTypeMap
+    where checkType s (s', t') = if t == t' then s' else s
 
 data WFTemplate = WFTemplate { templateType  :: WFTemplateType
                              , templateSource:: T.Text
@@ -81,8 +98,8 @@ instance FromJSON RouteCfg where
 type TemplateMap = (M.Map String Template)
 type TemplateMapState = MVar TemplateMap
 
--- | The top level parsed template is a list of fragments.
-type Template = [TemplateFragment]
+-- | The top level parsed template is a type and a list of fragments.
+data Template = Template WFTemplateType [TemplateFragment] deriving (Show, Eq)
 
 -- | Each fragment can be a sublist of fragments or a command.
 data TemplateFragment = FragmentText    T.Text          |
