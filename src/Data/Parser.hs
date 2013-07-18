@@ -11,15 +11,14 @@ import Data.Attoparsec.Text
 import Data.Char
 import Data.List
 
-import qualified Data.Map                        as M
-import qualified Data.Text                       as T
+import qualified Data.Map              as M
+import qualified Data.Text             as T
 
 {- Big Top -}
 
 parseWFTemplate :: WFTemplate -> Either T.Text Template
-parseWFTemplate (WFTemplate WFTImagePng src) = Right (Template WFTImagePng [FragmentText src])
-parseWFTemplate (WFTemplate WFTApplicationOctetStream src) = Right (Template WFTApplicationOctetStream [FragmentText src])
-parseWFTemplate (WFTemplate t src)  = handle $ parse (template t) src
+parseWFTemplate (WFTemplate t (WFTSrcBin b)) = Right (Binary t b)
+parseWFTemplate (WFTemplate t (WFTSrcText src))  = handle $ parse (template t) src
     where handle r = case r of
                          Partial c       -> handle $ c T.empty
                          Done _ tmp      -> Right tmp

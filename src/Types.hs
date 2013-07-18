@@ -11,8 +11,9 @@ import Control.Applicative     ( (<$>), (<*>) )
 import Control.Monad           ( mzero )
 import Data.SafeCopy           ( base, deriveSafeCopy )
 
-import qualified Data.Text as T
-import qualified Data.Map  as M
+import qualified Data.Text       as T
+import qualified Data.ByteString as B
+import qualified Data.Map        as M
 
 -- | The main acid store.
 type WFTemplateSourceMap = M.Map String WFTemplate
@@ -24,6 +25,10 @@ data WFTemplateType = WFTTextPlain
                     | WFTApplicationOctetStream
                     deriving (Show, Eq, Typeable)
 
+data WFTemplateSrc = WFTSrcText T.Text
+                   | WFTSrcBin B.ByteString
+                   deriving (Show,Eq,Typeable)
+
 wfTypeMap :: [(String,WFTemplateType)]
 wfTypeMap = [ ("image/png", WFTImagePng)
             , ("text/plain", WFTTextPlain)
@@ -31,6 +36,10 @@ wfTypeMap = [ ("image/png", WFTImagePng)
             , ("text/javascript", WFTTextJavascript)
             , ("application/octet-stream", WFTApplicationOctetStream)
             ]
+
+wfTypeIsBinary :: WFTemplateType -> Bool
+wfTypeIsBinary = (`elem` bins)
+    where bins = [WFTImagePng, WFTApplicationOctetStream]
 
 readWFTemplateType :: String -> WFTemplateType
 readWFTemplateType s = foldl checkType WFTTextPlain wfTypeMap
@@ -41,7 +50,7 @@ showWFTemplateType t = foldl checkType "text/plain" wfTypeMap
     where checkType s (s', t') = if t == t' then s' else s
 
 data WFTemplate = WFTemplate { templateType  :: WFTemplateType
-                             , templateSource:: T.Text
+                             , templateSource:: WFTemplateSrc
                              } deriving (Eq, Typeable)
 
 instance Show WFTemplate where
@@ -51,10 +60,8 @@ instance Show WFTemplate where
                                       , suf src
                                       , "'}"
                                       ]
-        where suf xs = T.unpack $ if T.length xs >= chars
-                                  then T.take chars xs `T.append` T.pack "..."
-                                  else xs
-              chars  = 10
+        where suf (WFTSrcText _) = "TextSource"
+              suf (WFTSrcBin _) = "BinarySource"
 
 -- | Represents a tree of template renders.
 -- data WFRenderTree = WFRenderTree { rtBranches    :: [WFRenderTree]
@@ -79,6 +86,7 @@ data RouteCfg  = RouteCfg { routeName         :: String       -- ^ Path of the t
                           } deriving (Show, Eq)
 
 $(deriveSafeCopy 0 'base ''WFTemplateType)
+$(deriveSafeCopy 0 'base ''WFTemplateSrc)
 $(deriveSafeCopy 0 'base ''WFTemplate)
 
 -- instance FromJSON Config where
@@ -99,7 +107,17 @@ type TemplateMap = (M.Map String Template)
 type TemplateMapState = MVar TemplateMap
 
 -- | The top level parsed template is a type and a list of fragments.
-data Template = Template WFTemplateType [TemplateFragment] deriving (Show, Eq)
+data Template = Template WFTemplateType [TemplateFragment]
+              | Binary WFTemplateType B.ByteString
+              deriving (Show, Eq)
+
+templateTypeIsBinary :: Template -> Bool
+templateTypeIsBinary (Template _ _) = False
+templateTypeIsBinary (Binary _ _) = True
+
+getTemplateType :: Template -> WFTemplateType
+getTemplateType (Template t _) = t
+getTemplateType (Binary t _) = t
 
 -- | Each fragment can be a sublist of fragments or a command.
 data TemplateFragment = FragmentText    T.Text          |

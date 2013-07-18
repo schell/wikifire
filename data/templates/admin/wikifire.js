@@ -1,6 +1,4 @@
-console.log('wikifire', ['blah']);
-
-angular.module('wikifire',['bngResource']).
+angular.module('wikifire',[]).
   factory('TemplateRoutes', function($resource) {
     return $resource('/_templateNames', {}, {
       query: {

@@ -22,7 +22,7 @@ import Data.Acid.Advanced       ( query', update' )
 
 import qualified Data.Text                  as T
 import qualified Data.ByteString.Char8      as C
-import qualified Data.ByteString.Lazy.Char8 as L
+import qualified Data.ByteString.Lazy       as L
 import qualified Data.Map                   as M
 
 main :: IO ()
@@ -51,8 +51,7 @@ route acid tMapVar = do
                      then do tMap <- liftIO $ loadTemplates acid
                              liftIO $ putStrLn "Loaded parsed templates again."
                              return tMap
-                     else do liftIO $ putStrLn "Parsed templates are loaded."
-                             return $ fromJust mtMap
+                     else return $ fromJust mtMap
     liftIO $ putMVar tMapVar tMap
     decodeBody (defaultBodyPolicy "/tmp/" 0 1000000 1000000)
     msum [ do method POST
@@ -78,7 +77,13 @@ handleGetTemplate acid name = do
     mTemplate <- query' acid $ GetTemplate name
     case mTemplate of
         Nothing -> notFound $ toResponse ()
-        Just t  -> ok $ contentLength $ toResponseBS (C.pack "text/plain") $ L.fromStrict $ encodeUtf8 $ templateSource t
+        Just t  -> okGetTemplate t
+
+okGetTemplate :: WFTemplate -> ServerPart Response
+okGetTemplate (WFTemplate typ (WFTSrcBin b)) =
+    ok $ contentLength $ toResponseBS (C.pack $ showWFTemplateType typ) $ L.fromStrict b
+okGetTemplate (WFTemplate _ (WFTSrcText t)) =
+    ok $ contentLength $ toResponseBS (C.pack "text/plain") $ L.fromStrict $ encodeUtf8 t
 
 handlePostTemplate :: AcidState WFTemplateSourceMap -> TemplateMapState -> ServerPart Response
 handlePostTemplate acid tMapVar = do
@@ -87,9 +92,11 @@ handlePostTemplate acid tMapVar = do
     mCt  <- optional $ look "contentType"
     tMap <- liftIO $ getTemplateMap tMapVar
     void $ liftIO $ putStrLn $ "Posting template to " ++ show name
-    let ct  = maybe WFTTextPlain readWFTemplateType mCt
-        wft = WFTemplate ct $ T.pack src
-        eTmp= parseWFTemplate wft
+    let ct   = maybe WFTTextPlain readWFTemplateType mCt
+        eTmp = parseWFTemplate wft
+        wft  = WFTemplate ct $ if wfTypeIsBinary ct
+                                 then WFTSrcBin $ C.pack src
+                                 else WFTSrcText $ T.pack src
     case eTmp of
         Left err -> ok $ contentLength $ toResponse err
         Right t  -> do
@@ -133,15 +140,17 @@ renderTemplateFromAcid acid name tMapVar = do
                     return $ Right template
 
 renderTemplate :: Template -> TemplateMap -> ServerPart Response
-renderTemplate t@(Template WFTTextPlain _) = ok . toResponse . resolveTemplateWithMap t
-renderTemplate t@(Template typ _) = okWithType typ . resolveTemplateWithMap t
+renderTemplate t m =
+    ok $ contentLength $ toResponseBS (C.pack $ showWFTemplateType typ) $ L.fromStrict payload
+        where Binary _ b         = t
+              typ                = getTemplateType t
+              (Template _ frags) = t
+              payload = if templateTypeIsBinary t
+                          then b
+                          else encodeUtf8 $ resolveFragmentsWithMap frags m
 
 convertText :: T.Text -> L.ByteString
 convertText = L.fromStrict . encodeUtf8
-
-okWithType :: WFTemplateType -> T.Text -> ServerPart Response
-okWithType t@WFTImagePng = ok . contentLength . toResponseBS (C.pack $ showWFTemplateType t) . convertText
-okWithType t = ok . toResponseBS (C.pack $ showWFTemplateType t) . convertText
 
 getTemplateMap :: TemplateMapState -> IO TemplateMap
 getTemplateMap = readMVar
