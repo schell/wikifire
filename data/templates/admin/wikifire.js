@@ -1,4 +1,4 @@
-angular.module('wikifire',[]).
+angular.module('wikifire',['ngResource']).
   factory('TemplateRoutes', function($resource) {
     return $resource('/_templateNames', {}, {
       query: {
