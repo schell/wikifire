@@ -5,14 +5,15 @@ import Data.WikiFire
 import Data.Parser
 import Types
 import Template
-import Startup
+import Options
 
-import Happstack.Server
+import Snap.Core
+import Snap.Http.Server
 import Control.Concurrent.MVar
-import Control.Applicative
 import Control.Monad
 import Data.Maybe
 import Data.Text.Encoding
+import Data.List
 
 import Control.Monad.IO.Class   ( liftIO )
 import Control.Exception        ( bracket )
@@ -26,10 +27,8 @@ import qualified Data.ByteString.Lazy       as L
 import qualified Data.Map                   as M
 
 main :: IO ()
-main = start run
-
-run :: Options -> IO ()
-run opts = do
+main = do
+    (cfg, opts) <- getConfig
     let datadir = optDataDir opts
     putStrLn $ "Reading routes from " ++ show datadir
     sourceMap <- initialTemplateSourceMap datadir
@@ -38,91 +37,89 @@ run opts = do
     putStrLn "Running the wikifire server..."
     bracket (openLocalState sourceMap)
             createCheckpointAndClose
-            (simpleHTTP nullConf . flip route tMap)
+            (httpServe cfg . flip site tMap)
 
-route :: AcidState WFTemplateSourceMap -> TemplateMapState -> ServerPart Response
-route acid tMapVar = do
-    mtMap <- liftIO $ tryTakeMVar tMapVar
-    tMap <- if isNothing mtMap
-              then do tMap <- liftIO $ loadTemplates acid
-                      liftIO $ putStrLn "Loaded parsed templates for the first time."
-                      return tMap
-              else if M.null $ fromJust mtMap
-                     then do tMap <- liftIO $ loadTemplates acid
-                             liftIO $ putStrLn "Loaded parsed templates again."
-                             return tMap
-                     else return $ fromJust mtMap
-    liftIO $ putMVar tMapVar tMap
-    decodeBody (defaultBodyPolicy "/tmp/" 0 1000000 1000000)
-    msum [ do method POST
-              routePOST acid tMapVar
-         , do method GET
-              routeGET  acid tMapVar
+site :: AcidState WFTemplateSourceMap -> TemplateMapState -> Snap ()
+site acid tMapVar = do
+    liftIO $ loadTemplatesIfNeeded acid tMapVar
+    msum [ method POST $ routePOST acid tMapVar
+         , method GET $ routeGET  acid tMapVar
          ]
 
-routeGET :: AcidState WFTemplateSourceMap -> TemplateMapState -> ServerPart Response
+routeGET :: AcidState WFTemplateSourceMap -> TemplateMapState -> Snap ()
 routeGET acid tMap =
-    msum [ dir "favicon.ico"    $ notFound (toResponse ())
-         , dir "_"              $ uriRest $ \s -> handleGetTemplate acid s
-         , dir "_templateNames" $ handleGetTemplateNames acid
-         , uriRest              $ \s -> handleRenderTemplate acid tMap s]
+    route [ ("_templateNames", handleGetTemplateNames acid)
+          , ("_", fmap C.unpack (getsRequest rqPathInfo) >>= handleGetTemplate acid)
+          , ("", fmap C.unpack (getsRequest rqPathInfo) >>= handleRenderTemplate acid tMap)
+          , ("favicon.ico", getResponse >>= finishWith)
+          ]
 
-routePOST :: AcidState WFTemplateSourceMap -> TemplateMapState -> ServerPart Response
-routePOST acid tMapVar =
-    msum [ do nullDir
-              handlePostTemplate acid tMapVar]
+routePOST :: AcidState WFTemplateSourceMap -> TemplateMapState -> Snap ()
+routePOST = handlePostTemplate
 
-handleGetTemplate :: AcidState WFTemplateSourceMap -> String -> ServerPart Response
+handleGetTemplate :: AcidState WFTemplateSourceMap -> String -> Snap ()
 handleGetTemplate acid name = do
+    liftIO $ print name
     mTemplate <- query' acid $ GetTemplate name
-    case mTemplate of
-        Nothing -> notFound $ toResponse ()
-        Just t  -> okGetTemplate t
+    maybe (return ()) okGetTemplate mTemplate
 
-okGetTemplate :: WFTemplate -> ServerPart Response
-okGetTemplate (WFTemplate typ (WFTSrcBin b)) =
-    ok $ contentLength $ toResponseBS (C.pack $ showWFTemplateType typ) $ L.fromStrict b
-okGetTemplate (WFTemplate _ (WFTSrcText t)) =
-    ok $ contentLength $ toResponseBS (C.pack "text/plain") $ L.fromStrict $ encodeUtf8 t
+okGetTemplate :: WFTemplate -> Snap ()
+okGetTemplate (WFTemplate typ (WFTSrcBin b)) = do
+    res <- getResponse
+    putResponse $ setContentType (C.pack $ showWFTemplateType typ) res
+    writeBS b
 
-handlePostTemplate :: AcidState WFTemplateSourceMap -> TemplateMapState -> ServerPart Response
+okGetTemplate (WFTemplate _ (WFTSrcText t)) = do
+    res <- getResponse
+    putResponse $ setContentType "text/plain" res
+    writeBS $ encodeUtf8 t
+
+handlePostTemplate :: AcidState WFTemplateSourceMap -> TemplateMapState -> Snap ()
 handlePostTemplate acid tMapVar = do
-    name <- look "name"
-    src  <- look "source"
-    mCt  <- optional $ look "contentType"
-    tMap <- liftIO $ getTemplateMap tMapVar
-    void $ liftIO $ putStrLn $ "Posting template to " ++ show name
-    let ct   = maybe WFTTextPlain readWFTemplateType mCt
-        eTmp = parseWFTemplate wft
-        wft  = WFTemplate ct $ if wfTypeIsBinary ct
-                                 then WFTSrcBin $ C.pack src
-                                 else WFTSrcText $ T.pack src
-    case eTmp of
-        Left err -> ok $ contentLength $ toResponse err
-        Right t  -> do
-            liftIO $ void $ tryTakeMVar tMapVar
-            success <- liftIO $ tryPutMVar tMapVar $ M.insert name t tMap
-            if success
-              then do msg <- update' acid $ PostTemplate name wft
-                      ok $ contentLength $ toResponse msg
-              else ok $ contentLength $ toResponse ("Could not store parsed template." :: L.ByteString)
+    mName <- getsRequest $ rqPostParam "name"
+    mSrc  <- getsRequest $ rqPostParam "source"
+    mCt   <- getsRequest $ rqPostParam "contentType"
+    tMap  <- liftIO $ getTemplateMap tMapVar
+    when (all isJust [mName,mSrc]) $ do
+        let ct:_   = fromMaybe ["text/plain"] mCt
+            ct'    = readWFTemplateType $ C.unpack ct
+            name:_ = fromJust mName
+            name'  = C.unpack name
+            src:_  = fromJust mSrc
+            eTmp = parseWFTemplate wft
+            wft  = WFTemplate ct' $ if wfTypeIsBinary ct'
+                                     then WFTSrcBin src
+                                     else WFTSrcText $ decodeUtf8 src
+        void $ liftIO $ putStrLn $ "Posting template to " ++ show name
+        case eTmp of
+            Left err -> writeBS $ encodeUtf8 err
+            Right t  -> do
+                liftIO $ void $ tryTakeMVar tMapVar
+                success <- liftIO $ tryPutMVar tMapVar $ M.insert name' t tMap
+                if success
+                  then do msg <- update' acid $ PostTemplate name' wft
+                          writeBS msg
+                  else writeBS "Could not store parsed template."
 
-handleGetTemplateNames :: AcidState WFTemplateSourceMap -> ServerPart Response
+handleGetTemplateNames :: AcidState WFTemplateSourceMap -> Snap ()
 handleGetTemplateNames acid = do
     namesJSON <- query' acid GetTemplateNames
-    ok $ contentLength $ toResponse namesJSON
+    writeBS namesJSON
 
-handleRenderTemplate :: AcidState WFTemplateSourceMap -> TemplateMapState -> String -> ServerPart Response
+handleRenderTemplate :: AcidState WFTemplateSourceMap -> TemplateMapState -> String -> Snap ()
 handleRenderTemplate acid tMapVar name = do
+    let name' = if "/" `isSuffixOf` name
+                  then init name
+                  else name
     tMap  <- liftIO $ getTemplateMap tMapVar
-    case M.lookup name tMap of
+    case M.lookup name' tMap of
         Just t  -> renderTemplate t tMap
         Nothing -> do eitherT <- renderTemplateFromAcid acid name tMapVar
                       case eitherT of
-                          Left msg -> ok $ toResponse msg
+                          Left msg -> writeBS $ encodeUtf8 msg
                           Right t  -> renderTemplate t tMap
 
-renderTemplateFromAcid :: AcidState WFTemplateSourceMap -> String -> TemplateMapState -> ServerPart (Either T.Text Template)
+renderTemplateFromAcid :: AcidState WFTemplateSourceMap -> String -> TemplateMapState -> Snap (Either T.Text Template)
 renderTemplateFromAcid acid name tMapVar = do
     liftIO $ putStrLn $ "Rendering template " ++ show name ++ " from acid."
     mwft  <- query' acid $ GetTemplate name
@@ -139,9 +136,11 @@ renderTemplateFromAcid acid name tMapVar = do
                     unless success $ liftIO $ putStrLn "Could not store template in map!"
                     return $ Right template
 
-renderTemplate :: Template -> TemplateMap -> ServerPart Response
-renderTemplate t m =
-    ok $ contentLength $ toResponseBS (C.pack $ showWFTemplateType typ) $ L.fromStrict payload
+renderTemplate :: Template -> TemplateMap -> Snap ()
+renderTemplate t m = do
+    res <- getResponse
+    putResponse $ setContentType (C.pack $ showWFTemplateType typ) res
+    writeBS payload
         where Binary _ b         = t
               typ                = getTemplateType t
               (Template _ frags) = t
@@ -154,6 +153,20 @@ convertText = L.fromStrict . encodeUtf8
 
 getTemplateMap :: TemplateMapState -> IO TemplateMap
 getTemplateMap = readMVar
+
+loadTemplatesIfNeeded :: AcidState WFTemplateSourceMap -> TemplateMapState -> IO ()
+loadTemplatesIfNeeded acid tMapVar = do
+    mtMap <- tryTakeMVar tMapVar
+    tMap <- if isNothing mtMap
+              then do tMap <- loadTemplates acid
+                      putStrLn "Loaded parsed templates for the first time."
+                      return tMap
+              else if M.null $ fromJust mtMap
+                     then do tMap <- loadTemplates acid
+                             putStrLn "Loaded parsed templates again."
+                             return tMap
+                     else return $ fromJust mtMap
+    putMVar tMapVar tMap
 
 loadTemplates :: AcidState WFTemplateSourceMap -> IO TemplateMap
 loadTemplates acid = do

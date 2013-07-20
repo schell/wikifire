@@ -1,33 +1,33 @@
 [
-    {"routeName"        : "/",
+    {"routeName"        : "",
      "routeFilePath"    : ["templates","index.html"],
      "routeContentType" : "text/html"},
 
-    {"routeName"        : "/nav.html",
+    {"routeName"        : "nav.html",
      "routeFilePath"    : ["templates","nav.html"],
      "routeContentType" : "text/html"},
 
-    {"routeName"        : "/content.html",
+    {"routeName"        : "content.html",
      "routeFilePath"    : ["templates","content.html"],
      "routeContentType" : "text/html"},
 
-    {"routeName"        : "/admin",
+    {"routeName"        : "admin",
      "routeFilePath"    : ["templates","admin","index.html"],
      "routeContentType" : "text/html"},
 
-    {"routeName"        : "/admin/wikifire.js",
+    {"routeName"        : "admin/wikifire.js",
      "routeFilePath"    : ["templates","admin","wikifire.js"],
      "routeContentType" : "text/javascript"},
 
-    {"routeName"        : "/admin/welcome.html",
+    {"routeName"        : "admin/welcome.html",
      "routeFilePath"    : ["templates","admin","welcome.html"],
      "routeContentType" : "text/html"},
 
-    {"routeName"        : "/admin/new.html",
+    {"routeName"        : "admin/new.html",
      "routeFilePath"    : ["templates","admin","new.html"],
      "routeContentType" : "text/html"},
 
-    {"routeName"        : "/admin/img/fire.png",
+    {"routeName"        : "admin/img/fire.png",
      "routeFilePath"    : ["templates","admin","img","fire.png"],
      "routeContentType" : "image/png"}
 ]
